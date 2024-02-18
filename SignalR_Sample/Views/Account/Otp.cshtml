@@ -1,0 +1,77 @@
+﻿@page
+@inject Microsoft.AspNetCore.Http.IHttpContextAccessor context
+@{
+    string userId = context?.HttpContext?.Request.Cookies["UserId"] ?? "";
+}
+<script src="~/lib/jquery/dist/jquery.min.js"></script>
+<script src="~/lib/microsoft/signalr/dist/browser/signalr.js"></script>
+<h2>Awaiting confirmation</h2>
+<p>Credentials are confirmed. An e-mail has just been sent to your e-mail address containing an OTP link to confirm in order to complete the authentication flow. Once you click on the link, this page will reload automatically.</p>
+<script>
+    $(function () {
+        if ("@userId" === "") {
+            window.location = '/Identity/Account/Login';
+        } else {
+            $("#err,#ok").hide();
+
+            setTimeout(function () {
+                showError("OTP validity time expired. Redirect to the login page in 3 seconds...");
+                setTimeout(function () {
+                    window.location = '/Identity/Account/Login';
+                }, 3000);
+            }, 3000 * 60);
+
+            var connection = new signalR.HubConnectionBuilder()
+                .withUrl("/NotificationHubOtp")
+                .build();
+
+            connection.on("ReceiveMsg", function (message) {
+                if (message && message.length === 13 && message.substring(0, 13) === "Authenticated") {
+                    const hash = message.substring(15);
+                    $.ajax({
+                        url: `/Account/CheckOtpAuthenticity/@userId`,
+                        cache: false
+                    })
+                        .done(function (res) {
+                            if (res.success) {
+                                showConf(res.message);
+                                setTimeout(function () {
+                                    window.location = `/Account/Secret`;
+                                }, 3000);
+                            } else {
+                                showError(res.message);
+                            }
+                        });
+                } else {
+                    showError("<b>Invalid OTP.</b>");
+                }
+            });
+
+            connection.on("ReceiveMsgError", function (message) {
+                showError("<b>Server returned an error</b>: " + message);
+            });
+
+            connection
+                .start()
+                .catch(function (err) {
+                    console.error(err);
+                });
+        }
+
+        function showError(error) {
+            $("#err").html("");
+            $("#err").append(error);
+            $("#err").show();
+            $("#ok").hide();
+        }
+
+        function showConf(conf) {
+            $("#ok").html("");
+            $("#ok").append(conf);
+            $("#ok").show();
+            $("#err").hide();
+        }
+    });
+</script>
+<div class="alert alert-danger" id="err"></div>
+<div class="alert alert-success" id="ok"></div>
